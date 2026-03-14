@@ -886,7 +886,7 @@ pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Res
                 }
 
                 let status = if app.show_help {
-                    "q quit | j/k move | g/G top/bottom | d/u,Ctrl-d/u half-page | Ctrl-f/b page | / search | n/N next/prev | r reload | ? help"
+                    "q quit | j/k move | g/G top/bottom | d/u,Ctrl-d/u half-page | Space,Ctrl-f/b page | / search | n/N next/prev | r reload | ? help"
                         .to_string()
                 } else {
                     match &app.mode {
@@ -1071,6 +1071,10 @@ fn handle_key_event(
             false
         }
         (KeyCode::PageDown, _) => {
+            app.scroll_down(full_page, viewport_height, content_width);
+            false
+        }
+        (KeyCode::Char(' '), KeyModifiers::NONE) => {
             app.scroll_down(full_page, viewport_height, content_width);
             false
         }
