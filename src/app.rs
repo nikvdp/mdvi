@@ -40,10 +40,30 @@ const DEFAULT_IMAGE_HINT_PIXEL_SIZE: (u32, u32) = (900, 500);
 const IMAGE_PRELOAD_VIEWPORTS: usize = 2;
 const MAX_IMAGE_RESULTS_PER_TICK: usize = 4;
 
+#[derive(Debug, Clone, Copy)]
+pub struct ViewerOptions {
+    pub image_protocol: ImageProtocol,
+    pub show_border: bool,
+    pub show_title: bool,
+    pub hide_cursor: bool,
+}
+
+impl Default for ViewerOptions {
+    fn default() -> Self {
+        Self {
+            image_protocol: ImageProtocol::Auto,
+            show_border: true,
+            show_title: true,
+            hide_cursor: true,
+        }
+    }
+}
+
 struct App {
     file_path: PathBuf,
     file_content: String,
     doc: RenderedDoc,
+    options: ViewerOptions,
     picker: Picker,
     images: Vec<InlineImage>,
     image_index_by_line: BTreeMap<usize, usize>,
@@ -149,7 +169,12 @@ enum Mode {
 }
 
 impl App {
-    fn new(file_path: PathBuf, start_line: usize, picker: Picker) -> Result<Self> {
+    fn new(
+        file_path: PathBuf,
+        start_line: usize,
+        picker: Picker,
+        options: ViewerOptions,
+    ) -> Result<Self> {
         let (image_loader_tx, image_loader_rx) = start_image_loader_thread();
         let (image_resize_tx, image_resize_rx) = start_image_resize_thread();
         let file_content = read_markdown_file(&file_path)?;
@@ -176,6 +201,7 @@ impl App {
             file_path,
             file_content,
             doc,
+            options,
             picker,
             images,
             image_index_by_line,
@@ -709,13 +735,13 @@ impl Drop for TuiGuard {
     }
 }
 
-pub fn run(file_path: PathBuf, start_line: usize, image_protocol: ImageProtocol) -> Result<()> {
+pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Result<()> {
     let mut tui = TuiGuard::setup()?;
     let mut picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::from_fontsize((10, 20)));
-    if let Some(protocol_type) = protocol_override(image_protocol) {
+    if let Some(protocol_type) = protocol_override(options.image_protocol) {
         picker.set_protocol_type(protocol_type);
     }
-    let mut app = App::new(file_path, start_line, picker)?;
+    let mut app = App::new(file_path, start_line, picker, options)?;
     let mut should_redraw = true;
 
     loop {
