@@ -8,6 +8,10 @@ readme = "README.md"
 keywords = ["markdown", "cli", "viewer", "terminal", "tui"]
 categories = ["command-line-utilities", "text-processing"]
 
+[workspace]
+members = ["xtask"]
+resolver = "2"
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
