@@ -706,6 +706,29 @@ impl App {
     }
 }
 
+fn content_block(file_path: &Path, options: ViewerOptions) -> Option<Block<'static>> {
+    if !options.show_border {
+        return None;
+    }
+
+    let mut block = Block::default().borders(Borders::ALL);
+    if options.show_title {
+        block = block.title(format!(" mdvi {} ", file_path.display()));
+    }
+
+    Some(block)
+}
+
+fn content_area(content_region: Rect, file_path: &Path, options: ViewerOptions) -> Rect {
+    content_block(file_path, options)
+        .map(|block| block.inner(content_region))
+        .unwrap_or(content_region)
+}
+
+fn cursor_visible(mode: &Mode, options: ViewerOptions) -> bool {
+    matches!(mode, Mode::SearchInput(_)) || !options.hide_cursor
+}
+
 struct TuiGuard {
     terminal: AppTerminal,
 }
@@ -762,9 +785,8 @@ pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Res
                     .constraints([Constraint::Min(1), Constraint::Length(1)])
                     .split(size);
 
-                let title = format!(" mdvi {} ", app.file_path.display());
-                let content_block = Block::default().borders(Borders::ALL).title(title);
-                let content_inner = content_block.inner(chunks[0]);
+                let content_frame = content_block(&app.file_path, app.options);
+                let content_inner = content_area(chunks[0], &app.file_path, app.options);
                 let content_width = content_inner.width;
                 let viewport_height = usize::from(content_inner.height);
                 let mut display_doc = app.build_display_doc(content_width);
@@ -794,10 +816,12 @@ pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Res
                 let cursor_screen_row = cursor_virtual_row.saturating_sub(app.scroll);
 
                 let text = Text::from(std::mem::take(&mut display_doc.lines));
-                let paragraph = Paragraph::new(text)
-                    .block(content_block)
+                let mut paragraph = Paragraph::new(text)
                     .wrap(Wrap { trim: false })
                     .scroll((app.scroll as u16, 0));
+                if let Some(block) = content_frame {
+                    paragraph = paragraph.block(block);
+                }
 
                 frame.render_widget(paragraph, chunks[0]);
 
@@ -914,7 +938,10 @@ pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Res
                         frame.set_cursor_position((cursor_x, chunks[1].y));
                     }
                     Mode::Normal => {
-                        if viewport_height > 0 && content_inner.width > 0 {
+                        if cursor_visible(&app.mode, app.options)
+                            && viewport_height > 0
+                            && content_inner.width > 0
+                        {
                             let cursor_y =
                                 content_inner.y.saturating_add(cursor_screen_row as u16);
                             frame.set_cursor_position((content_inner.x, cursor_y));
@@ -922,6 +949,11 @@ pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Res
                     }
                 }
             })?;
+            if cursor_visible(&app.mode, app.options) {
+                terminal.show_cursor()?;
+            } else {
+                terminal.hide_cursor()?;
+            }
             should_redraw = false;
         }
 
@@ -939,8 +971,14 @@ pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Res
                 }
 
                 let size = tui.terminal_mut().size()?;
-                let viewport_height = size.height.saturating_sub(3) as usize;
-                let content_width = size.width.saturating_sub(2);
+                let terminal_area = Rect::new(0, 0, size.width, size.height);
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(1), Constraint::Length(1)])
+                    .split(terminal_area);
+                let inner_area = content_area(chunks[0], &app.file_path, app.options);
+                let viewport_height = inner_area.height as usize;
+                let content_width = inner_area.width;
                 let half_page = (viewport_height / 2).max(1);
                 let full_page = viewport_height.max(1);
 
