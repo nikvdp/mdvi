@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use clap::{ArgAction, Parser, ValueEnum};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use directories::ProjectDirs;
 use serde::Deserialize;
 
@@ -25,11 +25,15 @@ pub enum ImageProtocol {
 #[command(name = "mdvi")]
 #[command(
     version,
-    about = "A high-quality markdown file viewer for the terminal"
+    about = "A high-quality markdown file viewer for the terminal",
+    subcommand_negates_reqs = true
 )]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Markdown file to open
-    path: PathBuf,
+    path: Option<PathBuf>,
 
     /// Start at a specific line (1-based)
     #[arg(short, long, default_value_t = 1)]
@@ -68,6 +72,22 @@ struct Cli {
     hide_cursor: bool,
 }
 
+#[derive(Debug, Subcommand)]
+enum Command {
+    #[command(alias = "init", visible_alias = "write-config")]
+    InitConfig(InitConfigArgs),
+}
+
+#[derive(Debug, Parser)]
+struct InitConfigArgs {
+    /// Write the example config to this path instead of the default mdvi config path
+    path: Option<PathBuf>,
+
+    /// Overwrite the destination file if it already exists
+    #[arg(long)]
+    force: bool,
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct FileConfig {
     image_protocol: Option<ImageProtocol>,
@@ -78,6 +98,10 @@ struct FileConfig {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(Command::InitConfig(args)) = cli.command {
+        return write_example_config(args.path, args.force);
+    }
+
     let file_config = load_file_config(cli.config.as_deref())?;
     let defaults = app::ViewerOptions::default();
     let viewer_options = app::ViewerOptions {
@@ -95,8 +119,11 @@ fn main() -> Result<()> {
             .or(file_config.hide_cursor)
             .unwrap_or(defaults.hide_cursor),
     };
+    let path = cli
+        .path
+        .context("markdown path is required unless using init-config")?;
 
-    app::run(cli.path, cli.line, viewer_options)
+    app::run(path, cli.line, viewer_options)
 }
 
 fn resolve_toggle(enable_flag: bool, disable_flag: bool) -> Option<bool> {
@@ -128,4 +155,40 @@ fn read_config_file(path: &Path) -> Result<FileConfig> {
 
 fn default_config_path() -> Option<PathBuf> {
     ProjectDirs::from("", "", "mdvi").map(|dirs| dirs.config_dir().join("config.toml"))
+}
+
+fn write_example_config(output_path: Option<PathBuf>, force: bool) -> Result<()> {
+    let path = match output_path {
+        Some(path) => path,
+        None => default_config_path().context("failed to determine the default mdvi config path")?,
+    };
+
+    if path.exists() && !force {
+        anyhow::bail!(
+            "refusing to overwrite existing config {}; rerun with --force or choose a different path",
+            path.display()
+        );
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create config directory {}", parent.display()))?;
+    }
+
+    fs::write(&path, example_config_contents())
+        .with_context(|| format!("failed to write config file {}", path.display()))?;
+    println!("wrote example config to {}", path.display());
+    Ok(())
+}
+
+fn example_config_contents() -> &'static str {
+    r#"# mdvi example config
+#
+# Save this at the default config path or pass it with --config.
+
+image_protocol = "auto"
+show_border = true
+show_title = true
+hide_cursor = true
+"#
 }
