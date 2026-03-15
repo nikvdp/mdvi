@@ -31,10 +31,8 @@ use ratatui_image::{
 use regex::{Regex, RegexBuilder};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{
-    renderer::{read_markdown_file, render_markdown, RenderedDoc},
-    ImageProtocol,
-};
+use mdvi::renderer::{read_markdown_file, render_markdown, RenderedDoc};
+use crate::ImageProtocol;
 
 type AppTerminal = Terminal<CrosstermBackend<Stdout>>;
 const DEFAULT_IMAGE_HINT_PIXEL_SIZE: (u32, u32) = (900, 500);
@@ -1540,7 +1538,7 @@ pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Res
                 }
 
                 let status = if app.show_help {
-                    "q quit | Ctrl-v visual block | y copy | Esc cancel | h/l,j/k move | w/W,b/B words | g/G top/bottom | d/u,Ctrl-d/u half-page | Space,Ctrl-f/b page | / search | n/N next/prev | r reload | ? help"
+                    "q quit | Ctrl-v visual block | y copy | Esc cancel | h/l,j/k move | w/W,b/B words | arrows move | g/G top/bottom | d/u,Ctrl-d/u half-page | Space,Ctrl-f/b page | / search | n/N next/prev | r reload | ? help"
                         .to_string()
                 } else {
                     match &app.mode {
