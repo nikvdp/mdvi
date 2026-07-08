@@ -4,6 +4,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+#[cfg(feature = "images")]
 use regex::Regex;
 use std::sync::OnceLock;
 use syntect::{
@@ -37,6 +38,7 @@ struct CodeHighlightAssets {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(feature = "images")]
 struct HtmlImageTag {
     src: String,
     alt: String,
@@ -53,6 +55,7 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
     let parser = Parser::new_ext(input, options);
 
     let mut lines: Vec<Line<'static>> = Vec::new();
+    #[allow(unused_mut)]
     let mut images: Vec<RenderedImage> = Vec::new();
     let mut current_spans: Vec<Span<'static>> = Vec::new();
 
@@ -62,6 +65,7 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
     let mut active_code_highlighter: Option<HighlightLines<'static>> = None;
     let mut in_blockquote = 0usize;
     let mut pending_link: Option<String> = None;
+    #[cfg(feature = "images")]
     let mut pending_image: Option<(String, String)> = None;
     let soft_break_as_space = true;
 
@@ -89,6 +93,7 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
         "  ".repeat(list_stack.len().saturating_sub(1))
     }
 
+    #[cfg(feature = "images")]
     fn append_image_entry(
         lines: &mut Vec<Line<'static>>,
         images: &mut Vec<RenderedImage>,
@@ -125,6 +130,7 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
     }
 
     for event in parser {
+        #[cfg(feature = "images")]
         if pending_image.is_some() {
             match event {
                 Event::End(TagEnd::Image) => {
@@ -248,6 +254,7 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
                     style_stack.push(base.add_modifier(Modifier::UNDERLINED));
                     pending_link = Some(dest_url.to_string());
                 }
+                #[cfg(feature = "images")]
                 Tag::Image { dest_url, .. } => {
                     blank_line(&mut lines, &mut current_spans);
                     pending_image = Some((dest_url.to_string(), String::new()));
@@ -362,23 +369,29 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
             }
             Event::Html(text) => {
                 let html = text.to_string();
+                #[cfg(feature = "images")]
                 let html_images = extract_html_images(&html);
+                #[cfg(not(feature = "images"))]
+                let html_images: Vec<()> = Vec::new();
                 if html_images.is_empty() {
                     current_spans.push(Span::styled(
                         html,
                         Style::default().add_modifier(Modifier::DIM),
                     ));
                 } else {
-                    blank_line(&mut lines, &mut current_spans);
-                    for image_tag in html_images {
-                        append_image_entry(
-                            &mut lines,
-                            &mut images,
-                            image_tag.src,
-                            image_tag.alt,
-                            image_tag.hinted_pixel_size,
-                            true,
-                        );
+                    #[cfg(feature = "images")]
+                    {
+                        blank_line(&mut lines, &mut current_spans);
+                        for image_tag in html_images {
+                            append_image_entry(
+                                &mut lines,
+                                &mut images,
+                                image_tag.src,
+                                image_tag.alt,
+                                image_tag.hinted_pixel_size,
+                                true,
+                            );
+                        }
                     }
                 }
             }
@@ -420,23 +433,29 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
             }
             Event::InlineHtml(text) => {
                 let html = text.to_string();
+                #[cfg(feature = "images")]
                 let html_images = extract_html_images(&html);
+                #[cfg(not(feature = "images"))]
+                let html_images: Vec<()> = Vec::new();
                 if html_images.is_empty() {
                     current_spans.push(Span::styled(
                         html,
                         Style::default().add_modifier(Modifier::DIM),
                     ));
                 } else {
-                    blank_line(&mut lines, &mut current_spans);
-                    for image_tag in html_images {
-                        append_image_entry(
-                            &mut lines,
-                            &mut images,
-                            image_tag.src,
-                            image_tag.alt,
-                            image_tag.hinted_pixel_size,
-                            true,
-                        );
+                    #[cfg(feature = "images")]
+                    {
+                        blank_line(&mut lines, &mut current_spans);
+                        for image_tag in html_images {
+                            append_image_entry(
+                                &mut lines,
+                                &mut images,
+                                image_tag.src,
+                                image_tag.alt,
+                                image_tag.hinted_pixel_size,
+                                true,
+                            );
+                        }
                     }
                 }
             }
@@ -447,6 +466,7 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
         push_line(&mut lines, &mut current_spans);
     }
 
+    #[cfg(feature = "images")]
     if let Some((src, alt_raw)) = pending_image.take() {
         append_image_entry(&mut lines, &mut images, src, alt_raw, None, false);
     }
@@ -499,6 +519,7 @@ fn extract_code_block_language_token(info: &str) -> Option<&str> {
     }
 }
 
+#[cfg(feature = "images")]
 fn display_src_label(src: &str) -> String {
     const MAX_URL_DISPLAY_CHARS: usize = 96;
     let src_chars = src.chars().count();
@@ -597,6 +618,7 @@ pub fn read_markdown_file(path: &std::path::Path) -> Result<String> {
         .with_context(|| format!("failed to read file: {}", path.display()))
 }
 
+#[cfg(feature = "images")]
 fn extract_html_images(html: &str) -> Vec<HtmlImageTag> {
     static IMG_TAG_RE: OnceLock<Regex> = OnceLock::new();
     static SRC_RE: OnceLock<Regex> = OnceLock::new();
@@ -644,6 +666,7 @@ fn extract_html_images(html: &str) -> Vec<HtmlImageTag> {
         .collect()
 }
 
+#[cfg(feature = "images")]
 fn parse_image_hint_from_tag(tag: &str, width_re: &Regex, height_re: &Regex) -> Option<(u32, u32)> {
     let width = parse_html_dimension_attr(tag, width_re);
     let height = parse_html_dimension_attr(tag, height_re);
@@ -653,12 +676,14 @@ fn parse_image_hint_from_tag(tag: &str, width_re: &Regex, height_re: &Regex) -> 
     }
 }
 
+#[cfg(feature = "images")]
 fn parse_html_dimension_attr(tag: &str, attr_re: &Regex) -> Option<u32> {
     let caps = attr_re.captures(tag)?;
     let raw = first_non_empty_capture_owned(&caps)?;
     raw.parse::<u32>().ok().filter(|value| *value > 0)
 }
 
+#[cfg(feature = "images")]
 fn first_non_empty_capture_owned(caps: &regex::Captures<'_>) -> Option<String> {
     (1..caps.len())
         .filter_map(|idx| caps.get(idx))
@@ -671,6 +696,7 @@ fn first_non_empty_capture_owned(caps: &regex::Captures<'_>) -> Option<String> {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "images")]
     #[test]
     fn markdown_images_are_extracted_for_runtime_rendering() {
         let doc = render_markdown("![Alt Text](images/sample.png)").expect("render succeeds");
@@ -687,6 +713,7 @@ mod tests {
         assert!(caption_text.contains("[image]"));
     }
 
+    #[cfg(feature = "images")]
     #[test]
     fn html_img_tags_are_extracted_for_runtime_rendering() {
         let input = r#"<img alt="Preview" width="1708" height="1040" src="https://example.com/preview.png" />"#;
@@ -704,6 +731,7 @@ mod tests {
         assert!(caption_text.contains("Preview"));
     }
 
+    #[cfg(feature = "images")]
     #[test]
     fn long_image_urls_are_truncated_in_caption_display() {
         let input = "![](https://example.com/this/is/a/very/long/path/that/should/be/truncated/when/rendered/in/the/caption/to/avoid/wrapping/issues.png)";
