@@ -1630,11 +1630,6 @@ pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Res
                     }
                 }
             })?;
-            if cursor_visible(&app.mode, app.options) {
-                terminal.show_cursor()?;
-            } else {
-                terminal.hide_cursor()?;
-            }
             should_redraw = false;
         }
 
@@ -1800,11 +1795,19 @@ fn handle_key_event(
             false
         }
         (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-            app.scroll_down_with_image_focus(viewport_height, content_width);
+            if matches!(app.mode, Mode::Normal) && !cursor_visible(&app.mode, app.options) {
+                app.scroll_down(1, viewport_height, content_width);
+            } else {
+                app.scroll_down_with_image_focus(viewport_height, content_width);
+            }
             false
         }
         (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
-            app.scroll_up_with_image_focus(viewport_height, content_width);
+            if matches!(app.mode, Mode::Normal) && !cursor_visible(&app.mode, app.options) {
+                app.scroll_up(1, viewport_height, content_width);
+            } else {
+                app.scroll_up_with_image_focus(viewport_height, content_width);
+            }
             false
         }
         (KeyCode::PageDown, _) => {
