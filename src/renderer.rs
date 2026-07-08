@@ -19,6 +19,48 @@ pub struct RenderedDoc {
     pub images: Vec<RenderedImage>,
 }
 
+impl RenderedDoc {
+    /// Convert the rendered document to a string with ANSI escape codes for terminal styling.
+    /// Each span's ratatui Style is translated to SGR parameters: bold, dim, italic,
+    /// underline, strikethrough, and 24-bit foreground color. Reset is emitted after each span.
+    pub fn to_ansi_string(&self) -> String {
+        let mut out = String::new();
+        for line in &self.lines {
+            for span in &line.spans {
+                let style = span.style;
+                let mut codes: Vec<String> = Vec::new();
+                if style.add_modifier.contains(Modifier::BOLD) {
+                    codes.push("1".to_string());
+                }
+                if style.add_modifier.contains(Modifier::DIM) {
+                    codes.push("2".to_string());
+                }
+                if style.add_modifier.contains(Modifier::ITALIC) {
+                    codes.push("3".to_string());
+                }
+                if style.add_modifier.contains(Modifier::UNDERLINED) {
+                    codes.push("4".to_string());
+                }
+                if style.add_modifier.contains(Modifier::CROSSED_OUT) {
+                    codes.push("9".to_string());
+                }
+                if let Some(Color::Rgb(r, g, b)) = style.fg {
+                    codes.push(format!("38;2;{r};{g};{b}"));
+                }
+                if !codes.is_empty() {
+                    out.push_str(&format!("\x1b[{}m", codes.join(";")));
+                }
+                out.push_str(span.content.as_ref());
+                if !codes.is_empty() {
+                    out.push_str("\x1b[0m");
+                }
+            }
+            out.push('\n');
+        }
+        out
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RenderedImage {
     pub src: String,
