@@ -30,6 +30,7 @@ app = [
     "dep:directories",
     "dep:image",
     "dep:ratatui-image",
+    "dep:regex",
     "dep:reqwest",
     "dep:serde",
     "dep:toml",

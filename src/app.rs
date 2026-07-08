@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use arboard::Clipboard;
+use clap::ValueEnum;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
@@ -29,16 +30,26 @@ use ratatui_image::{
     CropOptions, Resize, ResizeEncodeRender,
 };
 use regex::{Regex, RegexBuilder};
+use serde::Deserialize;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use mdvi::renderer::{read_markdown_file, render_markdown, RenderedDoc};
-use crate::ImageProtocol;
+use crate::renderer::{read_markdown_file, render_markdown, RenderedDoc};
 
 type AppTerminal = Terminal<CrosstermBackend<Stdout>>;
 const DEFAULT_IMAGE_HINT_PIXEL_SIZE: (u32, u32) = (900, 500);
 const IMAGE_PRELOAD_VIEWPORTS: usize = 2;
 const MAX_IMAGE_RESULTS_PER_TICK: usize = 4;
 const MAX_CACHED_IMAGE_VARIANTS: usize = 24;
+
+#[derive(Debug, Clone, Copy, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageProtocol {
+    Auto,
+    Halfblocks,
+    Sixel,
+    Kitty,
+    Iterm2,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct ViewerOptions {
@@ -220,14 +231,14 @@ enum Mode {
 impl App {
     fn new(
         file_path: PathBuf,
+        file_content: String,
+        doc: RenderedDoc,
         start_line: usize,
         picker: Picker,
         options: ViewerOptions,
     ) -> Result<Self> {
         let (image_loader_tx, image_loader_rx) = start_image_loader_thread();
         let (image_resize_tx, image_resize_rx) = start_image_resize_thread();
-        let file_content = read_markdown_file(&file_path)?;
-        let doc = render_markdown(&file_content)?;
         let images = prepare_images_for_doc(&file_path, &doc);
         let image_index_by_line = images
             .iter()
@@ -1401,12 +1412,34 @@ impl Drop for TuiGuard {
 }
 
 pub fn run(file_path: PathBuf, start_line: usize, options: ViewerOptions) -> Result<()> {
+    let file_content = read_markdown_file(&file_path)?;
+    let doc = render_markdown(&file_content)?;
+    run_rendered_doc(file_path, file_content, doc, start_line, options)
+}
+
+pub fn run_with_doc(doc: RenderedDoc, start_line: usize, options: ViewerOptions) -> Result<()> {
+    run_rendered_doc(
+        PathBuf::from("<rendered>"),
+        String::new(),
+        doc,
+        start_line,
+        options,
+    )
+}
+
+fn run_rendered_doc(
+    file_path: PathBuf,
+    file_content: String,
+    doc: RenderedDoc,
+    start_line: usize,
+    options: ViewerOptions,
+) -> Result<()> {
     let mut tui = TuiGuard::setup()?;
     let mut picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::from_fontsize((10, 20)));
     if let Some(protocol_type) = protocol_override(options.image_protocol) {
         picker.set_protocol_type(protocol_type);
     }
-    let mut app = App::new(file_path, start_line, picker, options)?;
+    let mut app = App::new(file_path, file_content, doc, start_line, picker, options)?;
     let mut should_redraw = true;
 
     loop {
