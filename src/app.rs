@@ -31,10 +31,8 @@ use ratatui_image::{
 use regex::{Regex, RegexBuilder};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{
-    renderer::{read_markdown_file, render_markdown, RenderedDoc},
-    ImageProtocol,
-};
+use mdvi::renderer::{read_markdown_file, render_markdown, RenderedDoc};
+use crate::ImageProtocol;
 
 type AppTerminal = Terminal<CrosstermBackend<Stdout>>;
 const DEFAULT_IMAGE_HINT_PIXEL_SIZE: (u32, u32) = (900, 500);
