@@ -1,24 +1,13 @@
-mod app;
-
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
-use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Parser, Subcommand};
 use directories::ProjectDirs;
+use mdvi::app::{self, ImageProtocol};
 use serde::Deserialize;
-
-#[derive(Debug, Clone, Copy, Deserialize, ValueEnum)]
-#[serde(rename_all = "lowercase")]
-pub enum ImageProtocol {
-    Auto,
-    Halfblocks,
-    Sixel,
-    Kitty,
-    Iterm2,
-}
 
 #[derive(Debug, Parser)]
 #[command(name = "mdvi")]
@@ -159,7 +148,9 @@ fn default_config_path() -> Option<PathBuf> {
 fn write_example_config(output_path: Option<PathBuf>, force: bool) -> Result<()> {
     let path = match output_path {
         Some(path) => path,
-        None => default_config_path().context("failed to determine the default mdvi config path")?,
+        None => {
+            default_config_path().context("failed to determine the default mdvi config path")?
+        }
     };
 
     if path.exists() && !force {
