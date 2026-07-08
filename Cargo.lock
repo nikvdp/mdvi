@@ -1327,7 +1327,7 @@ dependencies = [
 
 [[package]]
 name = "mdvi"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "anyhow",
  "arboard",
