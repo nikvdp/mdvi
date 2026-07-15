@@ -36,6 +36,7 @@ app = [
     "dep:toml",
     "dep:unicode-width",
     "ratatui/crossterm",
+    "ratatui/unstable-rendered-line-info",
 ]
 images = ["dep:regex"]
 

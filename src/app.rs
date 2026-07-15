@@ -344,7 +344,11 @@ impl App {
             return cached_rows;
         }
 
-        let rows = self.build_display_doc(content_width).lines.len().max(1);
+        let display_doc = self.build_display_doc(content_width);
+        let rows = Paragraph::new(Text::from(display_doc.lines))
+            .wrap(Wrap { trim: false })
+            .line_count(content_width)
+            .max(1);
         self.virtual_row_count_cache.insert(content_width, rows);
         rows
     }
