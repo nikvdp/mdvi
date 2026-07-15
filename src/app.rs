@@ -2064,6 +2064,7 @@ mod tests {
                 lines: doc_lines,
                 images: Vec::new(),
             },
+            options: ViewerOptions::default(),
             picker: Picker::from_fontsize((8, 16)),
             images: Vec::new(),
             image_index_by_line: BTreeMap::new(),
@@ -2119,6 +2120,23 @@ mod tests {
         app.scroll_down(1000, 20, 80);
         let max_scroll = app.max_scroll(20, 80);
         assert_eq!(app.scroll, max_scroll);
+    }
+
+    #[test]
+    fn scroll_counts_wrapped_rows_in_long_paragraphs() {
+        let mut app = test_app(1);
+        app.doc.lines[0] = Line::from("wrapped paragraph ".repeat(200));
+        let viewport_height = 10;
+        let content_width = 40;
+
+        let wrapped_rows = app.total_virtual_lines(content_width);
+        assert!(wrapped_rows > app.doc.lines.len());
+
+        app.scroll_down(usize::MAX, viewport_height, content_width);
+        assert_eq!(
+            app.scroll,
+            wrapped_rows.saturating_sub(viewport_height.saturating_sub(1))
+        );
     }
 
     #[test]
