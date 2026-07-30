@@ -6,7 +6,7 @@ use ratatui::{
 };
 #[cfg(feature = "images")]
 use regex::Regex;
-use std::sync::OnceLock;
+use std::{io::Read, sync::OnceLock};
 use syntect::{
     easy::HighlightLines,
     highlighting::{FontStyle, Style as SyntectStyle, Theme, ThemeSet},
@@ -656,8 +656,16 @@ fn push_line_or_blank(lines: &mut Vec<Line<'static>>, spans: &mut Vec<Span<'stat
 }
 
 pub fn read_markdown_file(path: &std::path::Path) -> Result<String> {
-    std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read file: {}", path.display()))
+    if path == std::path::Path::new("-") {
+        let mut content = String::new();
+        std::io::stdin()
+            .read_to_string(&mut content)
+            .context("failed to read stdin")?;
+        Ok(content)
+    } else {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read file: {}", path.display()))
+    }
 }
 
 #[cfg(feature = "images")]

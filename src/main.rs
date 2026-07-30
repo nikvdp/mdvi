@@ -20,7 +20,7 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 
-    /// Markdown file to open
+    /// Markdown file to open, or - to read from stdin
     path: Option<PathBuf>,
 
     /// Start at a specific line (1-based)
