@@ -8,6 +8,7 @@ use clap::{ArgAction, Parser, Subcommand};
 use directories::ProjectDirs;
 use mdvi::app::{self, ImageProtocol};
 use serde::Deserialize;
+mod self_update;
 
 #[derive(Debug, Parser)]
 #[command(name = "mdvi")]
@@ -64,6 +65,24 @@ struct Cli {
 enum Command {
     #[command(alias = "init", visible_alias = "write-config")]
     InitConfig(InitConfigArgs),
+    /// Update the installed mdvi binary from GitHub releases.
+    SelfUpdate {
+        /// Only check whether an update is available
+        #[arg(long)]
+        check: bool,
+
+        /// Reinstall even when the selected release matches this version
+        #[arg(long)]
+        force: bool,
+
+        /// Install a specific release tag
+        #[arg(long, value_name = "TAG")]
+        tag: Option<String>,
+
+        /// Path to the mdvi executable to replace
+        #[arg(long, value_name = "BINARY")]
+        path: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Parser)]
@@ -86,8 +105,44 @@ struct FileConfig {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    if let Some(Command::InitConfig(args)) = cli.command {
-        return write_example_config(args.path, args.force);
+    if let Some(command) = cli.command {
+        match command {
+            Command::InitConfig(args) => return write_example_config(args.path, args.force),
+            Command::SelfUpdate {
+                check,
+                force,
+                tag,
+                path,
+            } => {
+                let result = self_update::run_self_update(
+                    self_update::SelfUpdateOptions {
+                        check,
+                        force,
+                        tag,
+                        path,
+                    },
+                    |message| println!("{message}"),
+                )?;
+                if result.already_updated {
+                    println!("mdvi is up to date ({})", result.local_version);
+                } else if check {
+                    println!(
+                        "Update available: {} -> {}",
+                        result.local_version, result.remote_version
+                    );
+                    println!("Release: {}", result.release_url);
+                } else {
+                    let target = result.updated_path.as_ref().unwrap_or(&result.binary_path);
+                    println!("Release: {}", result.release_url);
+                    println!(
+                        "Updated mdvi: {} -> {}",
+                        result.local_version, result.remote_version
+                    );
+                    println!("Replaced: {}", target.display());
+                }
+                return Ok(());
+            }
+        }
     }
 
     let file_config = load_file_config(cli.config.as_deref())?;
