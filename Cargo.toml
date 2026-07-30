@@ -24,6 +24,7 @@ required-features = ["app"]
 [features]
 default = ["app", "images"]
 app = [
+    "dep:flate2",
     "dep:arboard",
     "dep:clap",
     "dep:crossterm",
@@ -35,9 +36,11 @@ app = [
     "dep:self-replace",
     "dep:sha2",
     "dep:tempfile",
+    "dep:tar",
     "dep:serde",
     "dep:toml",
     "dep:unicode-width",
+    "dep:zip",
     "ratatui/crossterm",
     "ratatui/unstable-rendered-line-info",
 ]
@@ -51,6 +54,7 @@ regex = { version = "1.11", optional = true }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 
 # App-only dependencies (feature-gated behind `app`)
+flate2 = { version = "1.1", optional = true }
 arboard = { version = "3.6", optional = true }
 clap = { version = "4.5", features = ["derive"], optional = true }
 crossterm = { version = "0.28", optional = true }
@@ -63,8 +67,10 @@ self-replace = { version = "1.5", optional = true }
 sha2 = { version = "0.10", optional = true }
 tempfile = { version = "3.10", optional = true }
 toml = { version = "0.8", optional = true }
+tar = { version = "0.4", optional = true }
 unicode-width = { version = "0.1", optional = true }
 
+zip = { version = "2.4", default-features = false, features = ["deflate"], optional = true }
 [profile.release]
 lto = true
 codegen-units = 1
