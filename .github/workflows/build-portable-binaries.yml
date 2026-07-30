@@ -100,10 +100,6 @@ jobs:
           tar -C dist -czf "dist/${{ matrix.asset_name }}" "${{ matrix.package_stem }}"
           rm -rf "$package_dir"
 
-      - name: Stage self-update binary
-        if: runner.os != 'Windows'
-        run: cp "target/${{ matrix.target }}/release/mdvi${{ matrix.binary_suffix }}" "dist/${{ matrix.package_stem }}${{ matrix.binary_suffix }}"
-
       - name: Package Windows artifact
         if: runner.os == 'Windows'
         shell: pwsh
@@ -116,18 +112,11 @@ jobs:
           Compress-Archive -Path "$packageDir/*" -DestinationPath "dist/${{ matrix.asset_name }}"
           Remove-Item -Recurse -Force $packageDir
 
-      - name: Stage self-update binary
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Copy-Item "target/${{ matrix.target }}/release/mdvi${{ matrix.binary_suffix }}" "dist/${{ matrix.package_stem }}${{ matrix.binary_suffix }}"
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.package_stem }}
-          path: |
-            dist/${{ matrix.asset_name }}
-            dist/${{ matrix.package_stem }}${{ matrix.binary_suffix }}
+          path: dist/${{ matrix.asset_name }}
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -142,9 +131,6 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
-
-      - name: Generate release checksums
-        run: (cd release-assets && sha256sum mdvi-* > checksums.txt)
 
       - name: Publish GitHub release
         env:
