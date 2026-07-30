@@ -65,6 +65,7 @@ Examples:
 mdvi docs/spec.md
 mdvi --line 120 CHANGELOG.md
 mdvi --image-protocol halfblocks README.md
+mdvi - < docs/spec.md
 ```
 
 ## Navigation
