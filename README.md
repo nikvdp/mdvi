@@ -41,6 +41,16 @@ brew tap taf2/tap
 brew install mdvi
 ```
 
+### Update a GitHub release binary
+
+```bash
+mdvi self-update
+```
+
+Use `mdvi self-update --check` to only check for a newer release. This is for
+binaries installed from a GitHub release; use Homebrew to update a Homebrew
+installation.
+
 ### From source
 
 ```bash
