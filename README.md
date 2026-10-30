@@ -31,6 +31,11 @@ Notes:
 - On macOS, terminal-native image protocols can trigger an "Allow Terminal-Initiated Display?" prompt.
   Use `--image-protocol halfblocks` if you want image rendering without that dialog.
 - Fenced code blocks with language tags (for example, a block tagged `rust`) render with syntax highlighting.
+- Tables use padded columns, bold headers, row separators, and Markdown left/center/right alignment.
+  Long cells wrap within their columns, including explicit `<br>` breaks. Tables reflow when the
+  terminal is resized; if columns would be too cramped, each row becomes a labeled record instead.
+  Inline formatting is preserved, empty record values appear as `—`, and images inside cells show
+  their alt text rather than interrupting the table with a full-size image.
 
 ## Install
 

@@ -33,7 +33,7 @@ use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::renderer::{read_markdown_file, render_markdown, RenderedDoc};
+use crate::renderer::{read_markdown_file, render_markdown, render_markdown_at_width, RenderedDoc};
 
 type AppTerminal = Terminal<CrosstermBackend<Stdout>>;
 const DEFAULT_IMAGE_HINT_PIXEL_SIZE: (u32, u32) = (900, 500);
@@ -95,6 +95,7 @@ struct App {
     image_resize_rx: Receiver<ImageResizeResult>,
     virtual_row_count_cache: BTreeMap<u16, usize>,
     highlighted_lines_cache: Option<HighlightedLinesCache>,
+    rendered_width: Option<u16>,
 }
 
 struct InlineImage {
@@ -282,6 +283,7 @@ impl App {
             image_resize_rx,
             virtual_row_count_cache: BTreeMap::new(),
             highlighted_lines_cache: None,
+            rendered_width: None,
         };
         app.request_local_dimension_probes();
         Ok(app)
@@ -289,7 +291,7 @@ impl App {
 
     fn reload(&mut self) {
         match read_markdown_file(&self.file_path).and_then(|content| {
-            let doc = render_markdown(&content)?;
+            let doc = render_markdown_at_width(&content, self.rendered_width.unwrap_or(80))?;
             Ok((content, doc))
         }) {
             Ok((content, doc)) => {
@@ -340,6 +342,7 @@ impl App {
     }
 
     fn total_virtual_lines(&mut self, content_width: u16) -> usize {
+        self.reflow_tables(content_width);
         if let Some(cached_rows) = self.virtual_row_count_cache.get(&content_width).copied() {
             return cached_rows;
         }
@@ -1328,7 +1331,37 @@ impl App {
         changed
     }
 
+    fn reflow_tables(&mut self, width: u16) {
+        if self.rendered_width == Some(width) || self.file_content.is_empty() {
+            return;
+        }
+        self.rendered_width = Some(width);
+        match render_markdown_at_width(&self.file_content, width) {
+            Ok(doc) => {
+                // Image order and sources are unchanged; retain loaded images and
+                // only move their captions to the newly laid-out document lines.
+                for (image, rendered) in self.images.iter_mut().zip(&doc.images) {
+                    image.line_index = rendered.line_index;
+                }
+                self.image_index_by_line = self
+                    .images
+                    .iter()
+                    .enumerate()
+                    .map(|(index, image)| (image.line_index, index))
+                    .collect();
+                self.doc = doc;
+                self.invalidate_highlight_cache();
+                self.invalidate_virtual_row_cache();
+                if self.search_regex.is_some() {
+                    self.rebuild_search_matches();
+                }
+            }
+            Err(err) => self.status = format!("table layout failed: {err}"),
+        }
+    }
+
     fn build_display_doc(&mut self, content_width: u16) -> DisplayDoc {
+        self.reflow_tables(content_width);
         let source_lines = self.highlighted_lines();
         let mut lines: Vec<Line<'static>> = Vec::with_capacity(source_lines.len());
         let mut image_plans = Vec::new();
@@ -2085,11 +2118,44 @@ mod tests {
             image_resize_rx,
             virtual_row_count_cache: BTreeMap::new(),
             highlighted_lines_cache: None,
+            rendered_width: None,
         }
     }
 
     fn line_text(line: &Line<'static>) -> String {
         line_plain_text(line)
+    }
+
+    #[test]
+    fn tables_reflow_on_resize_and_search_tracks_the_new_layout() {
+        let mut app = test_app(0);
+        app.file_content = "| Name | Description |\n| --- | --- |\n| Cat | Friendly animal with a long description |\n\nAfter the table".to_string();
+        app.doc = render_markdown(&app.file_content).unwrap();
+        let wide = app.build_display_doc(60);
+        assert!(wide
+            .lines
+            .iter()
+            .any(|line| line_text(line).starts_with('┌')));
+        app.search("Friendly", 10, 60);
+        let narrow = app.build_display_doc(18);
+        assert!(narrow
+            .lines
+            .iter()
+            .filter(|line| !line_text(line).contains("After"))
+            .all(|line| line.width() <= 18));
+        assert!(narrow
+            .lines
+            .iter()
+            .any(|line| line_text(line) == "Description:"));
+        assert_eq!(app.search_matches.len(), 1);
+        assert!(app.line_text_at(app.search_matches[0]).contains("Friendly"));
+        app.jump_next_match(10, 18);
+        assert_eq!(app.cursor_row, app.search_matches[0]);
+        let wide_again = app.build_display_doc(60);
+        assert!(wide_again
+            .lines
+            .iter()
+            .any(|line| line_text(line).starts_with('┌')));
     }
 
     fn app_with_image_for_navigation() -> App {

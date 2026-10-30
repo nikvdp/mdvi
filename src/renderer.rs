@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
+    widgets::{Paragraph, Wrap},
 };
 #[cfg(feature = "images")]
 use regex::Regex;
@@ -87,7 +88,199 @@ struct HtmlImageTag {
     hinted_pixel_size: Option<(u32, u32)>,
 }
 
+#[derive(Default)]
+struct MarkdownTable {
+    alignments: Vec<Alignment>,
+    rows: Vec<Vec<Line<'static>>>,
+    row: Vec<Line<'static>>,
+}
+
+impl MarkdownTable {
+    fn render(self, width: usize) -> Vec<Line<'static>> {
+        let columns = self.alignments.len();
+        let mut widths = vec![1; columns];
+        for row in &self.rows {
+            for (cell, width) in row.iter().zip(&mut widths) {
+                *width = (*width).max(cell.width());
+            }
+        }
+        let overhead = columns * 3 + 1;
+        let available = width.saturating_sub(overhead);
+        // Keep short columns compact; give the remaining space to longer cells.
+        let minimums: Vec<_> = widths.iter().map(|w| (*w).min(8)).collect();
+        if available < minimums.iter().sum() {
+            return self.render_records(width);
+        }
+        let mut low = 1;
+        let mut high = widths.iter().copied().max().unwrap_or(1);
+        while low < high {
+            let cap = (low + high).div_ceil(2);
+            let total: usize = widths
+                .iter()
+                .zip(&minimums)
+                .map(|(w, minimum)| (*w).min(cap).max(*minimum))
+                .sum();
+            if total <= available {
+                low = cap;
+            } else {
+                high = cap - 1;
+            }
+        }
+        if widths.iter().sum::<usize>() > available {
+            for (width, minimum) in widths.iter_mut().zip(&minimums) {
+                *width = (*width).min(low).max(*minimum);
+            }
+        }
+        let border_style = Style::default().add_modifier(Modifier::DIM);
+        let border = |left: char, join: char, right: char| {
+            let mut text = left.to_string();
+            for (index, width) in widths.iter().enumerate() {
+                if index > 0 {
+                    text.push(join);
+                }
+                text.push_str(&"─".repeat(width + 2));
+            }
+            text.push(right);
+            Line::from(Span::styled(text, border_style))
+        };
+        let mut lines = vec![border('┌', '┬', '┐')];
+        for (row_index, row) in self.rows.iter().enumerate() {
+            let cells: Vec<_> = row
+                .iter()
+                .zip(&widths)
+                .map(|(cell, width)| wrap_table_cell(cell, *width))
+                .collect();
+            let height = cells.iter().map(Vec::len).max().unwrap_or(1);
+            for row_line in 0..height {
+                let mut spans = vec![Span::styled("│", border_style)];
+                for (index, width) in widths.iter().enumerate() {
+                    let cell = cells.get(index).and_then(|cell| cell.get(row_line));
+                    let padding = width.saturating_sub(cell.map(Line::width).unwrap_or(0));
+                    let left = match self.alignments[index] {
+                        Alignment::Right => padding,
+                        Alignment::Center => padding / 2,
+                        _ => 0,
+                    };
+                    spans.push(Span::raw(" ".repeat(left + 1)));
+                    if let Some(cell) = cell {
+                        spans.extend(cell.spans.iter().cloned().map(|mut span| {
+                            if row_index == 0 {
+                                span.style = span.style.add_modifier(Modifier::BOLD);
+                            }
+                            span
+                        }));
+                    }
+                    spans.push(Span::raw(" ".repeat(padding - left + 1)));
+                    spans.push(Span::styled("│", border_style));
+                }
+                lines.push(Line::from(spans));
+            }
+            if row_index + 1 < self.rows.len() {
+                lines.push(border('├', '┼', '┤'));
+            }
+        }
+        lines.push(border('└', '┴', '┘'));
+        lines
+    }
+
+    fn render_records(self, width: usize) -> Vec<Line<'static>> {
+        let mut lines = Vec::new();
+        let Some(header) = self.rows.first() else {
+            return lines;
+        };
+        let rows = if self.rows.len() > 1 {
+            &self.rows[1..]
+        } else {
+            &self.rows[..]
+        };
+        for (index, row) in rows.iter().enumerate() {
+            if index > 0 {
+                lines.push(Line::default());
+            }
+            for (column, cell) in row.iter().enumerate() {
+                let mut label = header[column].clone();
+                for span in &mut label.spans {
+                    span.style = span.style.add_modifier(Modifier::BOLD);
+                }
+                label.spans.push(Span::raw(":"));
+                lines.extend(wrap_table_cell(&label, width));
+                let indent = width.saturating_sub(2).min(2);
+                let value = if cell.spans.iter().all(|span| span.content.is_empty()) {
+                    Line::from("—")
+                } else {
+                    cell.clone()
+                };
+                for mut line in wrap_table_cell(&value, width.saturating_sub(indent)) {
+                    line.spans.insert(0, Span::raw(" ".repeat(indent)));
+                    lines.push(line);
+                }
+            }
+        }
+        lines
+    }
+}
+
+fn wrap_table_cell(cell: &Line<'static>, width: usize) -> Vec<Line<'static>> {
+    // Use the same word wrapping and grapheme widths as the viewer, then recover
+    // styled lines from the buffer so the outer paragraph never wraps a table row.
+    let width = width.max(1).min(u16::MAX as usize) as u16;
+    if cell.width() <= usize::from(width)
+        && !cell.spans.iter().any(|span| span.content.contains('\n'))
+    {
+        return vec![cell.clone()];
+    }
+    let mut source = vec![Line::default()];
+    for span in &cell.spans {
+        for (index, part) in span.content.split('\n').enumerate() {
+            if index > 0 {
+                source.push(Line::default());
+            }
+            source
+                .last_mut()
+                .expect("cell has a line")
+                .spans
+                .push(Span::styled(part.to_string(), cell.style.patch(span.style)));
+        }
+    }
+    let paragraph = Paragraph::new(source).wrap(Wrap { trim: true });
+    let height = paragraph.line_count(width).max(1).min(u16::MAX as usize) as u16;
+    let area = ratatui::layout::Rect::new(0, 0, width, height);
+    let mut buffer = ratatui::buffer::Buffer::empty(area);
+    ratatui::widgets::Widget::render(paragraph, area, &mut buffer);
+    (0..height)
+        .map(|y| {
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            let mut x = 0;
+            while x < width {
+                let cell = &buffer[(x, y)];
+                let symbol = cell.symbol();
+                let style = cell.style();
+                if let Some(last) = spans.last_mut().filter(|span| span.style == style) {
+                    last.content.to_mut().push_str(symbol);
+                } else {
+                    spans.push(Span::styled(symbol.to_string(), style));
+                }
+                x += Span::raw(symbol).width().max(1) as u16;
+            }
+            while let Some(last) = spans.last_mut() {
+                let trimmed = last.content.trim_end().len();
+                last.content.to_mut().truncate(trimmed);
+                if !last.content.is_empty() {
+                    break;
+                }
+                spans.pop();
+            }
+            Line::from(spans)
+        })
+        .collect()
+}
+
 pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
+    render_markdown_at_width(input, 80)
+}
+
+/// Render tables to fit the available terminal columns.
+pub fn render_markdown_at_width(input: &str, width: u16) -> Result<RenderedDoc> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
@@ -110,6 +303,7 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
     #[cfg(feature = "images")]
     let mut pending_image: Option<(String, String)> = None;
     let soft_break_as_space = true;
+    let mut table: Option<MarkdownTable> = None;
 
     fn push_line(lines: &mut Vec<Line<'static>>, spans: &mut Vec<Span<'static>>) {
         if spans.is_empty() {
@@ -177,7 +371,14 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
             match event {
                 Event::End(TagEnd::Image) => {
                     let (src, alt_raw) = pending_image.take().expect("pending image exists");
-                    append_image_entry(&mut lines, &mut images, src, alt_raw, None, true);
+                    if table.is_some() {
+                        current_spans.push(Span::styled(
+                            format!("[image] {}", if alt_raw.is_empty() { src } else { alt_raw }),
+                            Style::default().add_modifier(Modifier::DIM),
+                        ));
+                    } else {
+                        append_image_entry(&mut lines, &mut images, src, alt_raw, None, true);
+                    }
                 }
                 Event::Text(text)
                 | Event::Code(text)
@@ -298,19 +499,19 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
                 }
                 #[cfg(feature = "images")]
                 Tag::Image { dest_url, .. } => {
-                    blank_line(&mut lines, &mut current_spans);
+                    if table.is_none() {
+                        blank_line(&mut lines, &mut current_spans);
+                    }
                     pending_image = Some((dest_url.to_string(), String::new()));
                 }
-                Tag::Table(_) => {
+                Tag::Table(alignments) => {
                     blank_line(&mut lines, &mut current_spans);
+                    table = Some(MarkdownTable {
+                        alignments,
+                        ..MarkdownTable::default()
+                    });
                 }
-                Tag::TableHead => {}
-                Tag::TableRow => {}
-                Tag::TableCell => {
-                    if !current_spans.is_empty() {
-                        current_spans.push(Span::raw(" │ ".to_string()));
-                    }
-                }
+                Tag::TableHead | Tag::TableRow | Tag::TableCell => {}
                 Tag::FootnoteDefinition(name) => {
                     blank_line(&mut lines, &mut current_spans);
                     current_spans.push(Span::styled(
@@ -370,15 +571,23 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
                 }
                 TagEnd::Image => {}
                 TagEnd::Table => {
-                    if !current_spans.is_empty() {
-                        push_line(&mut lines, &mut current_spans);
+                    if let Some(table) = table.take() {
+                        lines.extend(table.render(usize::from(width.max(1))));
                     }
                     lines.push(Line::default());
                 }
-                TagEnd::TableRow => {
-                    push_line(&mut lines, &mut current_spans);
+                TagEnd::TableHead | TagEnd::TableRow => {
+                    if let Some(table) = table.as_mut() {
+                        table.rows.push(std::mem::take(&mut table.row));
+                    }
                 }
-                TagEnd::TableCell => {}
+                TagEnd::TableCell => {
+                    if let Some(table) = table.as_mut() {
+                        table
+                            .row
+                            .push(Line::from(std::mem::take(&mut current_spans)));
+                    }
+                }
                 _ => {}
             },
             Event::Text(text) => {
@@ -392,7 +601,7 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
                         base,
                     );
                 } else {
-                    if current_spans.is_empty() && in_blockquote > 0 {
+                    if current_spans.is_empty() && in_blockquote > 0 && table.is_none() {
                         let prefix = format!("{}│ ", "  ".repeat(in_blockquote.saturating_sub(1)));
                         current_spans.push(Span::styled(
                             prefix,
@@ -475,6 +684,16 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
             }
             Event::InlineHtml(text) => {
                 let html = text.to_string();
+                if table.is_some()
+                    && matches!(
+                        html.trim().to_ascii_lowercase().as_str(),
+                        "<br>" | "<br/>" | "<br />"
+                    )
+                {
+                    // Ratatui's Text preserves explicit line breaks inside cells.
+                    current_spans.push(Span::raw("\n"));
+                    continue;
+                }
                 #[cfg(feature = "images")]
                 let html_images = extract_html_images(&html);
                 #[cfg(not(feature = "images"))]
@@ -487,6 +706,12 @@ pub fn render_markdown(input: &str) -> Result<RenderedDoc> {
                 } else {
                     #[cfg(feature = "images")]
                     {
+                        if table.is_some() {
+                            for image_tag in html_images {
+                                current_spans.push(Span::raw(format!("[image] {}", image_tag.alt)));
+                            }
+                            continue;
+                        }
                         blank_line(&mut lines, &mut current_spans);
                         for image_tag in html_images {
                             append_image_entry(
@@ -839,5 +1064,115 @@ mod tests {
             .expect("fallback code span should exist");
 
         assert!(code_span.style.add_modifier.contains(Modifier::DIM));
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    fn text(doc: &RenderedDoc) -> Vec<String> {
+        doc.lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tables_separate_headers_preserve_empty_cells_and_align_unicode() {
+        let doc = render_markdown("| Name | Count | State |\n| :--- | ---: | :---: |\n| 猫 | 7 | ok |\n| café | 120 | |\n| | 2 | yes |\n").unwrap();
+        assert_eq!(
+            text(&doc)
+                .into_iter()
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>(),
+            vec![
+                "┌──────┬───────┬───────┐",
+                "│ Name │ Count │ State │",
+                "├──────┼───────┼───────┤",
+                "│ 猫   │     7 │  ok   │",
+                "├──────┼───────┼───────┤",
+                "│ café │   120 │       │",
+                "├──────┼───────┼───────┤",
+                "│      │     2 │  yes  │",
+                "└──────┴───────┴───────┘",
+            ]
+        );
+        let name = doc
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .find(|span| span.content == "Name")
+            .unwrap();
+        assert!(name.style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn tables_wrap_words_and_explicit_breaks_without_losing_inline_styles() {
+        let doc = render_markdown_at_width("| Item | Description |\n| --- | --- |\n| A | *alpha beta gamma delta epsilon*<br>last |\n| B | `x` and [docs](https://example.com) |", 34).unwrap();
+        let lines = text(&doc);
+        assert!(doc.lines.iter().all(|line| line.width() <= 34));
+        let rendered = lines.join(" ");
+        for word in ["alpha", "beta", "gamma", "delta", "epsilon", "last"] {
+            assert!(rendered.contains(word), "missing wrapped word {word}");
+        }
+        assert!(doc
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .any(|span| span.content.contains("epsilon")
+                && span.style.add_modifier.contains(Modifier::ITALIC)));
+        assert!(doc
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .any(|span| span.content.contains("docs")
+                && span.style.add_modifier.contains(Modifier::UNDERLINED)));
+    }
+
+    #[test]
+    fn cramped_tables_become_labeled_records_without_dropping_values() {
+        let doc = render_markdown_at_width("| Name | Description |\n| --- | --- |\n| Cat | Friendly animal |\n| Dog | Loyal companion |", 18).unwrap();
+        let lines = text(&doc);
+        assert!(doc.lines.iter().all(|line| line.width() <= 18));
+        assert_eq!(
+            lines.iter().filter(|line| line.as_str() == "Name:").count(),
+            2
+        );
+        for value in ["Cat", "Friendly animal", "Dog", "Loyal companion"] {
+            assert!(
+                lines.iter().any(|line| line.trim() == value),
+                "missing {value}"
+            );
+        }
+        let empty =
+            render_markdown_at_width("| Name | Value |\n| --- | --- |\n| Cat | |", 12).unwrap();
+        assert!(text(&empty).iter().any(|line| line.trim() == "—"));
+        assert_eq!(
+            Paragraph::new(empty.lines.clone())
+                .wrap(Wrap { trim: false })
+                .line_count(12),
+            empty.lines.len()
+        );
+    }
+
+    #[test]
+    fn table_images_stay_in_cells_and_following_images_keep_caption_indices() {
+        let doc = render_markdown("| Item | Preview |\n| --- | --- |\n| Cat | ![Kitten](cat.png) |\n\n![After](after.png)").unwrap();
+        let lines = text(&doc);
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("Kitten") && line.starts_with('│')));
+        #[cfg(feature = "images")]
+        {
+            assert_eq!(doc.images.len(), 1);
+            assert_eq!(doc.images[0].src, "after.png");
+            assert!(lines[doc.images[0].line_index].contains("After"));
+        }
     }
 }

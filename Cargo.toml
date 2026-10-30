@@ -42,14 +42,13 @@ app = [
     "dep:unicode-width",
     "dep:zip",
     "ratatui/crossterm",
-    "ratatui/unstable-rendered-line-info",
 ]
 images = ["dep:regex"]
 
 [dependencies]
 anyhow = "1.0"
 pulldown-cmark = "0.12"
-ratatui = { version = "0.29", default-features = false }
+ratatui = { version = "0.29", default-features = false, features = ["unstable-rendered-line-info"] }
 regex = { version = "1.11", optional = true }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 
