@@ -6,7 +6,7 @@ use std::{
     process::Command,
 };
 
-use toml_edit::{ArrayOfTables, DocumentMut, value};
+use toml_edit::{value, ArrayOfTables, DocumentMut};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
