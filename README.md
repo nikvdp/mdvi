@@ -56,6 +56,19 @@ Use `mdvi self-update --check` to only check for a newer release. This is for
 binaries installed from a GitHub release; use Homebrew to update a Homebrew
 installation.
 
+### Nix (flakes)
+
+```bash
+nix build
+./result/bin/mdvi README.md
+
+# Or build and run directly:
+nix run . -- README.md
+```
+
+The flake uses `Cargo.lock` and a pinned nixpkgs input. It provides `default` and
+`mdvi` packages for Apple Silicon/Intel macOS and ARM64/x86-64 Linux.
+
 ### From source
 
 ```bash

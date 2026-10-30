@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- A Nix flake for building and running mdvi on macOS and Linux with locked Rust dependencies.
+
 ### Changed
 - Render tables with aligned, padded columns, bold headers, row borders, Unicode-aware cell widths, and wrapped cell text instead of joining unpadded values.
 - Reflow tables to the terminal width on resize, switching cramped tables to labeled records while preserving search and image caption positions.
